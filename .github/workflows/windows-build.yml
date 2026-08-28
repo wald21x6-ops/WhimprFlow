@@ -1,0 +1,83 @@
+name: Windows build
+
+# Builds the Windows NSIS installer on GitHub's runners so no local
+# C++/Rust toolchain is needed. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/windows-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # whisper-rs-sys generates bindings with bindgen 0.69, which cannot parse
+      # output from LLVM newer than 18.x. The runner ships a newer LLVM, so pin
+      # our own and point bindgen at it. See docs/BUILD-PREREQUISITES.md.
+      - name: Install LLVM 18.1.8
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1.8"
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Locate libclang.dll
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path "${{ runner.temp }}\llvm" -Filter libclang.dll -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { throw "libclang.dll not found under the pinned LLVM" }
+          "LIBCLANG_PATH=$($dll.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "LIBCLANG_PATH -> $($dll.DirectoryName)"
+          clang --version
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Toolchain preflight (informational)
+        continue-on-error: true
+        run: node scripts/check-build-prereqs.mjs
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      # esbuild's postinstall is sometimes skipped; harmless when not needed.
+      - name: Approve esbuild build script
+        continue-on-error: true
+        working-directory: ui
+        run: pnpm approve-builds --all
+
+      - name: Build the installer
+        shell: pwsh
+        run: ui\node_modules\.bin\tauri.CMD build --bundles nsis
+
+      - name: Show what was produced
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path . -Recurse -Include *.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'release' } |
+            Select-Object FullName, Length | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WhimprFlow-windows-installer
+          if-no-files-found: warn
+          path: |
+            target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.exe
