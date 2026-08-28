@@ -30,7 +30,7 @@ struct BarStatePayload {
     state: &'static str,
 }
 
-/// Anchor the overlay window bottom-center of its monitor.
+/// Anchor the overlay window bottom-right of its monitor.
 fn position_overlay(w: &WebviewWindow) {
     // current_monitor() can be None before the window maps; fall back sensibly.
     let monitor = w
@@ -48,7 +48,7 @@ fn position_overlay(w: &WebviewWindow) {
     let mpos = monitor.position();
     let Ok(wsize) = w.outer_size() else { return };
     let inset = (40.0 * scale) as i32;
-    let x = mpos.x + (msize.width as i32 - wsize.width as i32) / 2;
+    let x = mpos.x + msize.width as i32 - wsize.width as i32 - inset;
     let y = mpos.y + msize.height as i32 - wsize.height as i32 - inset;
     let _ = w.set_position(tauri::PhysicalPosition { x, y });
     eprintln!(
