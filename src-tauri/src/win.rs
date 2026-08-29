@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
@@ -95,6 +95,11 @@ fn emit_bar(state: &'static str) {
             state: &'static str,
         }
         let _ = app.emit_to(OVERLAY_LABEL, "whimpr://flowbar/state", P { state });
+        // Only show the bar while a dictation is in flight. At rest it is an
+        // always-on-top window parked over whatever the user is doing.
+        if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
+            let _ = if state == "idle" { w.hide() } else { w.show() };
+        }
     }
 }
 
@@ -375,6 +380,8 @@ fn spawn_hook_thread() {
 
 pub fn install(app: AppHandle) {
     let _ = APP.set(app);
+    // Start hidden: the bar is a dictation indicator, not a permanent fixture.
+    emit_bar("idle");
     let _ = CLOCK.set(Instant::now());
     let _ = SETTINGS.set(Mutex::new(whimpr_core::Settings::load(&settings_path())));
     let _ = DICTIONARY.set(Mutex::new(whimpr_core::DictionaryStore::load(&dict_path())));
