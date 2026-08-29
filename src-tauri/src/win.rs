@@ -211,13 +211,27 @@ fn clean_transcript(raw: &str) -> String {
     match result {
         Some(Ok(cleaned)) => {
             let cleaned = whimpr_core::cleanup::post_process(&cleaned);
-            if whimpr_core::cleanup::evaluate_gates(&raw_out, &cleaned, level).passed() {
+            let verdict = whimpr_core::cleanup::evaluate_gates(&raw_out, &cleaned, level);
+            if verdict.passed() {
                 cleaned
             } else {
+                eprintln!("[whimpr:win] cleanup rejected by gate: {verdict:?} — pasting raw");
                 raw_out
             }
         }
-        _ => raw_out,
+        // Every fallback below used to be silent, which made a failing API key,
+        // a rejected model and a missing provider all look identical to the user.
+        Some(Err(e)) => {
+            eprintln!("[whimpr:win] cleanup request failed: {e:#} — pasting raw");
+            raw_out
+        }
+        None => {
+            eprintln!(
+                "[whimpr:win] no cleanup provider for mode {:?} (missing API key?) — pasting raw",
+                settings.cleanup_mode
+            );
+            raw_out
+        }
     }
 }
 
